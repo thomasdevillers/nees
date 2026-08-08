@@ -1,0 +1,12 @@
+.DS_Store
+.vercel/
+node_modules/
+
+# Original high-resolution media retained locally; optimized web copies are committed.
+demovideo.mp4
+productimage1.png
+multi.png
+mall.png
+nightclub.png
+wedding.png
+gym.png
