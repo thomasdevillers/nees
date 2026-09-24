@@ -1608,7 +1608,7 @@ button {
 }
 
 .site-footer p { max-width: 20rem; margin: 0; }
-.footer-links { display: flex; gap: 1.5rem; }
+.footer-links { display: flex; flex-wrap: wrap; gap: 1rem 1.5rem; }
 .footer-links a:hover { color: var(--lime); }
 
 .whatsapp-float {
@@ -1832,3 +1832,38 @@ button {
   }
   .reveal { opacity: 1; transform: none; }
 }
+
+/* Privacy policy */
+.privacy-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 1.5rem var(--pad);
+  color: var(--paper);
+  background: var(--ink);
+  border-bottom: 1px solid var(--line);
+}
+.privacy-header > a:last-child { font-size: 0.875rem; }
+.privacy-main { padding: clamp(3rem, 7vw, 7rem) var(--pad); }
+.privacy-intro, .privacy-content { max-width: 52rem; margin-inline: auto; }
+.privacy-eyebrow, .privacy-date { font-family: var(--font-mono); font-size: 0.75rem; }
+.privacy-eyebrow { letter-spacing: 0.14em; }
+.privacy-intro h1 {
+  margin: 1.25rem 0;
+  font-family: var(--font-display);
+  font-size: clamp(2.75rem, 7vw, 5.5rem);
+  line-height: 1.06;
+  letter-spacing: -0.055em;
+}
+.privacy-intro h1 span { color: var(--ink); background: var(--lime); }
+.privacy-intro > p:not([class]) { max-width: 36rem; font-size: 1.125rem; line-height: 1.7; }
+.privacy-date { margin: 2rem 0 3rem; }
+.privacy-content section { border-top: 1px solid var(--line-dark); padding: 1.75rem 0; }
+.privacy-content h2 { margin: 0 0 1rem; font-family: var(--font-display); font-size: clamp(1.25rem, 3vw, 1.65rem); line-height: 1.3; }
+.privacy-content p, .privacy-content li { font-size: 1rem; line-height: 1.85; }
+.privacy-content p { margin: 0 0 1rem; }
+.privacy-content li + li { margin-top: 0.75rem; }
+.privacy-content ul { padding-left: 1.25rem; }
+.privacy-content a { text-decoration: underline; text-underline-offset: 0.2em; overflow-wrap: anywhere; }
+.privacy-main :focus-visible { outline-color: var(--ink); }
