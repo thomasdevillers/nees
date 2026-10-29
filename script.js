@@ -78,11 +78,11 @@ window.dataLayer = window.dataLayer || [];
 const trackEvent = (event, details = {}) => {
   const payload = { event, ...campaignContext, ...details };
   window.dataLayer.push(payload);
-  document.dispatchEvent(new CustomEvent("nees:analytics", { detail: payload }));
+  document.dispatchEvent(new CustomEvent("onscene:analytics", { detail: payload }));
 };
 
 try {
-  sessionStorage.setItem("neesCampaign", JSON.stringify(campaignContext));
+  sessionStorage.setItem("onsceneCampaign", JSON.stringify(campaignContext));
 } catch {
   // Tracking context still remains available for this page view.
 }
@@ -93,12 +93,12 @@ if (industryProfile) {
   document.querySelector("[data-hero-line]").textContent = industryProfile.line;
   document.querySelector("[data-hero-accent]").textContent = industryProfile.accent;
   document.querySelector("[data-hero-copy]").textContent = industryProfile.copy;
-  document.title = `Nees for ${industryProfile.label.replace("Digital displays for ", "")} — Get seen`;
+  document.title = `OnScene for ${industryProfile.label.replace("Digital displays for ", "")} — Get seen`;
 }
 
 const quoteSubject = industryProfile?.message || "a digital display setup";
 const whatsappMessage = [
-  `Hi Nees, I'm interested in a quote for ${quoteSubject}.`,
+  `Hi OnScene, I'm interested in a quote for ${quoteSubject}.`,
   "",
   "Company:",
   "Location:",
@@ -131,7 +131,7 @@ document.querySelectorAll(".faq-list details").forEach((item) => {
   });
 });
 
-trackEvent("nees_page_view");
+trackEvent("onscene_page_view");
 
 const closeMenu = () => {
   menuButton.setAttribute("aria-expanded", "false");

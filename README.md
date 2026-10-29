@@ -1,6 +1,6 @@
-# Nees landing page
+# OnScene landing page
 
-A responsive, dependency-free one-page site for Nees. Open `index.html` directly,
+A responsive, dependency-free one-page site for OnScene. Open `index.html` directly,
 or serve this folder with any static web server.
 
 ## Media handoff
