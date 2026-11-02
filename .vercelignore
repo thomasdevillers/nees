@@ -1,0 +1,6 @@
+scripts
+tests
+.local
+.env*
+README.md
+supabase

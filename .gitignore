@@ -10,3 +10,8 @@ mall.png
 nightclub.png
 wedding.png
 gym.png
+
+# Local secrets
+.env*
+!.env.example
+.local/

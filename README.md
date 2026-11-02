@@ -43,3 +43,74 @@ analytics tool later without changing the page interactions.
   website domain is connected.
 - Update the page title and description if a final positioning line is chosen.
 - Compress the hero video and add a poster image for fast first paint.
+
+## Admin portal (`/admin`)
+
+A password-protected back office for the screen fleet and rental calendar.
+
+- **Screens**: add, edit and delete screens by the unique number on each frame
+  (letters, digits and dashes, stored upper-case). Each screen has an optional label,
+  a status (Available / Maintenance / Retired) and notes. A screen that appears on any
+  rental cannot be deleted. Remove it from those rentals first, or mark it Retired.
+- **Clients**: add, edit and delete clients with a name, email, cellphone number and a
+  default address. A client with rentals cannot be deleted.
+- **Rental days**: switch between a month **Calendar** and a **List** (current & upcoming,
+  past, all). Filter either view by screen. Selecting a day shows who has which screens
+  and which available screens are free. Each rental links to an existing client and one or
+  more existing screens, runs from a first to a last day (inclusive), and has notes.
+  Its address is prefilled from the client's default and can be changed for that booking
+  only. You can also add a new client from inside the rental form. The server refuses to
+  double-book a screen on overlapping days.
+
+### Setup (Supabase)
+
+1. In the Supabase dashboard, open your project → **SQL Editor** and run each file in
+   `supabase/migrations/` once, oldest first:
+   `20261102000000_admin_fleet.sql`, then `20261103000000_clients.sql`. If you use the
+   Supabase CLI instead, run `supabase link` and then `supabase db push`.
+2. In Vercel → Project → Settings → Environment Variables, add:
+   - `SUPABASE_URL`: Project Settings → API → Project URL.
+   - `SUPABASE_SECRET_KEY`: Project Settings → API Keys → a **secret** key (`sb_secret_…`).
+     The legacy `service_role` key also works, as `SUPABASE_SERVICE_ROLE_KEY`.
+     This key bypasses row-level security. Keep it server-side only and never put it in browser code.
+3. Choose the admin password (at least 5 characters) and set it as `ADMIN_PASSWORD` in
+   Vercel Production, then redeploy. For local use, run `npm run admin:setup`. It asks
+   for the password with hidden typing and saves it to `.env.local`. You can also pass it
+   directly: `npm run admin:setup -- "your password"`. Run it again to change it.
+
+Only the Vercel functions talk to Supabase. Every table has row-level security enabled
+with no policies, and table grants are revoked from `anon`/`authenticated`, so the
+public anon key can read nothing. Free-tier projects pause after a period without
+activity; if the admin reports a database error, check whether the project needs restoring in the dashboard.
+
+Sign-in mirrors the Smelt dispatch desk: opaque 12-hour sessions stored in
+`admin_sessions`, in an HttpOnly, SameSite=Strict cookie (`onscene_admin`), login rate limiting
+(10 per IP and 100 total per 15 minutes), same-origin checks on every change, and
+`no-store` responses. Changing the password (and redeploying) signs everyone out.
+
+### Data model
+
+- `screens`: `number` is unique and upper-case. Status is `available`, `maintenance` or `retired`.
+- `clients`: name, email, phone, default `address`.
+- `rentals`: `client_id` (must exist; a client with rentals cannot be deleted), the booking
+  `address`, notes, and `start_date`–`end_date` (inclusive).
+- `rental_screens`: links rentals to screens. A screen on any rental cannot be deleted
+  (`on delete restrict`). An exclusion constraint makes Postgres itself refuse two rentals
+  holding the same screen on overlapping days, even for concurrent saves or edits made in
+  the Supabase table editor.
+- `save_rental(...)`: creates or updates a rental and its screens in one transaction.
+  An empty address takes the client's default.
+
+Photos and videos will use Supabase Storage later.
+
+### Local development
+
+```sh
+npm install
+cp .env.example .env.local   # optional: fill in to use your Supabase project
+npm run dev     # http://localhost:3000/admin/
+npm test        # API tests + migration checks in an in-process Postgres (PGlite)
+```
+
+Without `SUPABASE_URL`, `npm run dev` keeps data in memory until it stops. Without
+`ADMIN_PASSWORD`, it uses `onscene-dev`.
