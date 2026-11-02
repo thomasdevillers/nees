@@ -2,8 +2,7 @@
 .vercel/
 node_modules/
 
-# Original high-resolution media retained locally; optimized web copies are committed.
-demovideo.mp4
+# Original high-resolution images retained locally; optimized web copies are committed.
 productimage1.png
 multi.png
 mall.png

@@ -1040,21 +1040,6 @@ button {
   text-transform: uppercase;
 }
 
-.use-case i {
-  position: absolute;
-  top: 1rem;
-  right: 1rem;
-  font-size: 1.1rem;
-  font-style: normal;
-  opacity: 0.35;
-  transition: opacity 250ms ease, transform 250ms var(--ease);
-}
-
-.use-case:hover i {
-  opacity: 1;
-  transform: rotate(45deg);
-}
-
 .solutions {
   padding-top: clamp(6rem, 11vw, 10rem);
   padding-bottom: clamp(6rem, 11vw, 11rem);
@@ -1585,8 +1570,6 @@ button {
   box-shadow: 0 0 0 0.75rem rgba(223, 255, 0, 0.12);
   transform: translateY(-4px);
 }
-
-.primary-cta span:last-child { font-size: 1.4rem; }
 
 .site-footer {
   display: grid;

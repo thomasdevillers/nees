@@ -5,8 +5,8 @@ or serve this folder with any static web server.
 
 ## Media handoff
 
-The hero uses the optimized `demovideo-web.mp4`. Original source media is retained
-locally, while the deployed page serves lightweight WebP images.
+The hero uses the higher-quality `demovideo.mp4` on desktop and mobile, with
+automatic preloading and no poster image. Other page images use lightweight WebP files.
 
 - The single-display frame uses `productimage1.webp`, and the chained-display
   frame uses `multi.webp`.
