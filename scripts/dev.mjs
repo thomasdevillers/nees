@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize, resolve } from "node:path";
 import { memoryDb, useDb } from "../api/_lib/db.js";
+import { memoryStorage, useStorage } from "../api/_lib/storage.js";
 
 const root = resolve(import.meta.dirname, "..");
 const port = Number(process.env.PORT) || 3000;
@@ -43,8 +44,21 @@ async function file(res, pathname) {
   catch { res.writeHead(404).end("Not found"); }
 }
 
+const storage = process.env.R2_BUCKET ? null : memoryStorage();
+if (storage) { useStorage(storage); console.log("No R2 configured: uploaded files are kept in memory until this server stops."); }
+else console.log(`Using R2 bucket ${process.env.R2_BUCKET}`);
+
+async function devStorage(req, res, token) {
+  if (!storage) { res.writeHead(404).end(); return; }
+  const chunks = [];
+  for await (const chunk of req) chunks.push(chunk);
+  const result = storage.serve(token, req.method, Buffer.concat(chunks));
+  res.writeHead(result.status, result.headers).end(result.body);
+}
+
 createServer((req, res) => {
-  const { pathname } = new URL(req.url, "http://localhost");
+  const { pathname, searchParams } = new URL(req.url, "http://localhost");
+  if (pathname === "/api/dev-storage") { devStorage(req, res, searchParams.get("token")).catch(error => { console.error(error); res.writeHead(500).end(); }); return; }
   const match = pathname.match(/^\/api\/admin\/([a-z]+)$/);
   (match ? api(req, res, match[1]) : file(res, pathname)).catch(error => { console.error(error); res.writeHead(500).end(); });
 }).listen(port, () => console.log(`OnScene running at http://localhost:${port}  ·  admin at http://localhost:${port}/admin/`));

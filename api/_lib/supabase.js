@@ -3,10 +3,15 @@ import { conflict } from "./db.js";
 
 const SCREEN_COLUMNS = "id, number, label, status, notes, created_at, updated_at";
 const CLIENT_COLUMNS = "id, name, email, phone, address, created_at, updated_at";
+const MEDIA_COLUMNS = "id, client_id, object_key, file_name, content_type, size_bytes, status, created_at, uploaded_at";
 const RENTAL_COLUMNS = "id, client_id, address, notes, start_date, end_date, created_at, updated_at, rental_screens(screen_id)";
 
 const toScreen = row => ({ id: row.id, number: row.number, label: row.label, status: row.status, notes: row.notes, createdAt: row.created_at, updatedAt: row.updated_at });
 const toClient = row => ({ id: row.id, name: row.name, email: row.email, phone: row.phone, address: row.address, createdAt: row.created_at, updatedAt: row.updated_at });
+const toMedia = row => ({
+  id: row.id, clientId: row.client_id, objectKey: row.object_key, fileName: row.file_name, contentType: row.content_type,
+  size: Number(row.size_bytes), status: row.status, createdAt: row.created_at, uploadedAt: row.uploaded_at,
+});
 const toRental = row => ({
   id: row.id, clientId: row.client_id, address: row.address, notes: row.notes, start: row.start_date, end: row.end_date,
   screenIds: (row.rental_screens || []).map(link => link.screen_id), createdAt: row.created_at, updatedAt: row.updated_at,
@@ -71,6 +76,23 @@ export function supabaseDb() {
       },
       async remove(id) {
         await one(client.from("rentals").delete().eq("id", id).select("id").maybeSingle(), {}, conflict.rentalNotFound);
+      },
+    },
+    media: {
+      async list() { return (await one(client.from("client_media").select(MEDIA_COLUMNS).order("created_at"))).map(toMedia); },
+      async get(id) {
+        const row = await one(client.from("client_media").select(MEDIA_COLUMNS).eq("id", id).maybeSingle());
+        return row ? toMedia(row) : null;
+      },
+      async create(fields) {
+        const row = { id: fields.id, client_id: fields.clientId, object_key: fields.objectKey, file_name: fields.fileName, content_type: fields.contentType, size_bytes: fields.size };
+        return toMedia(await one(client.from("client_media").insert(row).select(MEDIA_COLUMNS).single(), { 23503: conflict.missingClient }));
+      },
+      async markReady(id) {
+        return toMedia(await one(client.from("client_media").update({ status: "ready", uploaded_at: new Date().toISOString() }).eq("id", id).select(MEDIA_COLUMNS).maybeSingle(), {}, conflict.mediaNotFound));
+      },
+      async remove(id) {
+        await one(client.from("client_media").delete().eq("id", id).select("id").maybeSingle(), {}, conflict.mediaNotFound);
       },
     },
     sessions: {

@@ -11,7 +11,8 @@
     "admin:setup": "node scripts/setup-admin.mjs"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.118.0"
+    "@supabase/supabase-js": "^2.118.0",
+    "aws4fetch": "^1.0.20"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.14"

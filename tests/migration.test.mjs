@@ -107,6 +107,19 @@ describe("database rules", () => {
     await rejects("delete from clients where id = $1", "23001", [client]);
   });
 
+  it("records client media and keeps it tied to an existing client", async () => {
+    const owner = (await db.query("insert into clients (name) values ('Media owner') returning id")).rows[0].id;
+    const insert = (fields = {}) => db.query("insert into client_media (client_id, object_key, file_name, content_type, size_bytes) values ($1, $2, $3, $4, $5) returning status",
+      [fields.client ?? owner, fields.key ?? `clients/${owner}/${Math.random()}`, fields.name ?? "Reel.mp4", fields.type ?? "video/mp4", fields.size ?? 1000]);
+    assert.equal((await insert()).rows[0].status, "pending");
+    await rejects("insert into client_media (client_id, object_key, file_name, content_type, size_bytes) values (gen_random_uuid(), 'k', 'a.mp4', 'video/mp4', 1)", "23503");
+    for (const fields of [{ type: "application/pdf" }, { size: 0 }, { size: 5000000001 }, { name: "" }])
+      await assert.rejects(insert(fields), error => error.code === "23514");
+    await insert({ key: "same" });
+    await assert.rejects(insert({ key: "same" }), error => error.code === "23505");
+    await rejects("delete from clients where id = $1", "23001", [owner]);
+  });
+
   it("counts sign-in attempts per window", async () => {
     const hit = async () => (await db.query("select admin_login_hit('k', 900) as n")).rows[0].n;
     assert.equal(await hit(), 1);

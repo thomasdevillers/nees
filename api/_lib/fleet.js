@@ -70,11 +70,14 @@ export async function saveClient(input, id) {
 }
 
 export async function deleteClient(id) {
-  const [clients, rentals] = await Promise.all([listClients(), listRentals()]);
+  const db = await adminDb();
+  const [clients, rentals, media] = await Promise.all([listClients(), listRentals(), db.media.list()]);
   const client = clients.find(item => item.id === id);
   if (!client) throw conflict.clientNotFound();
   const booked = rentals.filter(rental => rental.clientId === id).length;
   if (booked) throw new AdminError(`${client.name} has ${booked} ${booked === 1 ? "rental" : "rentals"}. Delete those rentals or move them to another client first.`, 409);
+  const files = media.filter(item => item.clientId === id).length;
+  if (files) throw new AdminError(`${client.name} has ${files} ${files === 1 ? "photo or video" : "photos and videos"}. Delete those files first.`, 409);
   await (await adminDb()).clients.remove(id);
 }
 

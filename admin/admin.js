@@ -47,7 +47,7 @@ const plural = (count, word, many = `${word}s`) => `${count} ${count === 1 ? wor
 
 const remembered = (() => { try { return JSON.parse(localStorage.getItem("onscene-admin-view") || "{}"); } catch { return {}; } })();
 const state = {
-  auth: null, error: "", loading: false, screens: [], clients: [], rentals: [],
+  auth: null, error: "", loading: false, screens: [], clients: [], rentals: [], media: [],
   tab: ["screens", "clients"].includes(remembered.tab) ? remembered.tab : "rentals",
   view: remembered.view === "list" ? "list" : "calendar",
   month: today().slice(0, 7), selected: today(), filter: "", scope: "upcoming", rentalSearch: "", screenSearch: "", clientSearch: "",
@@ -72,8 +72,8 @@ function handleError(error, fallback) {
 async function load() {
   state.loading = true; state.error = ""; render();
   try {
-    const [{ screens }, { clients }, { rentals }] = await Promise.all([api("screens"), api("clients"), api("rentals")]);
-    Object.assign(state, { screens, clients, rentals });
+    const [{ screens }, { clients }, { rentals }, { media }] = await Promise.all([api("screens"), api("clients"), api("rentals"), api("media")]);
+    Object.assign(state, { screens, clients, rentals, media });
     if (state.filter && !screenById(state.filter)) state.filter = "";
   } catch (error) { state.error = handleError(error, "Could not load the back office.") ?? ""; }
   finally { state.loading = false; render(); }
@@ -211,6 +211,7 @@ function rentalSummary(rental) {
       h("p", { class: "numbers" }, sortedScreenIds(rental.screenIds).map(id => h("button", { type: "button", class: "tag", title: "Show this screen's rentals", onclick: () => set({ tab: "rentals", filter: id }) }, `#${numberOf(id)}`))),
       rental.notes ? h("p", { class: "notes" }, rental.notes) : null),
     h("div", { class: "row-actions" },
+      mediaButton(clientById(rental.clientId)),
       h("button", { type: "button", class: "button ghost small", onclick: () => rentalDialog(rental) }, "Edit"),
       h("button", { type: "button", class: "button danger small", onclick: () => removeRental(rental) }, "Delete")));
 }
@@ -297,6 +298,7 @@ function clientsTab() {
       h("td", {}, client.address ? h("span", { class: "address" }, client.address) : h("span", { class: "muted" }, "—")),
       h("td", {}, plural(own.length, "rental"), upcoming ? h("span", { class: "muted" }, h("br"), out ? `Out until ${shortDate(upcoming.end)}` : `Next ${shortDate(upcoming.start)}`) : null),
       h("td", {}, h("div", { class: "row-actions" },
+        mediaButton(client),
         h("button", { type: "button", class: "button ghost small", disabled: !own.length, onclick: () => set({ tab: "rentals", view: "list", scope: "all", filter: "", rentalSearch: client.name }) }, "Rentals"),
         h("button", { type: "button", class: "button ghost small", onclick: () => clientDialog(client) }, "Edit"),
         h("button", { type: "button", class: "button danger small", onclick: () => removeClient(client, own.length) }, "Delete"))));
@@ -435,6 +437,149 @@ function clientDialog(client, onsaved) {
     }, null, onsaved);
 }
 
+/* ---------- client media ---------- */
+
+const MAX_FILE_BYTES = 5_000_000_000;
+const TYPES_BY_EXTENSION = {
+  mp4: "video/mp4", m4v: "video/x-m4v", mov: "video/quicktime", webm: "video/webm", mkv: "video/x-matroska", avi: "video/x-msvideo",
+  jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif", webp: "image/webp", avif: "image/avif",
+  heic: "image/heic", heif: "image/heif", tif: "image/tiff", tiff: "image/tiff",
+};
+const fileType = file => /^(image|video)\//.test(file.type) ? file.type : TYPES_BY_EXTENSION[file.name.split(".").pop().toLowerCase()] || "";
+function bytes(size) {
+  const units = ["B", "KB", "MB", "GB"];
+  let value = size, unit = 0;
+  while (value >= 1000 && unit < units.length - 1) { value /= 1000; unit++; }
+  return `${value >= 100 || unit === 0 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`;
+}
+const readyMedia = clientId => state.media.filter(item => item.clientId === clientId && item.status === "ready");
+
+function mediaButton(client) {
+  if (!client) return null;
+  const count = readyMedia(client.id).length;
+  return h("button", { type: "button", class: "button ghost small", onclick: () => mediaDialog(client) }, count ? `Media · ${count}` : "Media");
+}
+
+// Starts a download without leaving the page: the signed link answers with Content-Disposition: attachment.
+function startDownload(url) {
+  const frame = h("iframe", { src: url, hidden: true, title: "Download" });
+  document.body.append(frame);
+  setTimeout(() => frame.remove(), 60_000);
+}
+
+function putFile(upload, file, onprogress, signal) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", upload.url);
+    for (const [name, value] of Object.entries(upload.headers)) xhr.setRequestHeader(name, value);
+    xhr.upload.onprogress = event => event.lengthComputable && onprogress(event.loaded / event.total);
+    xhr.onload = () => xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`Storage refused the upload (${xhr.status}).`));
+    xhr.onerror = () => reject(new Error("The upload was blocked or the connection dropped. If this keeps happening, check the R2 bucket's CORS settings."));
+    xhr.onabort = () => reject(new DOMException("Upload cancelled.", "AbortError"));
+    signal.addEventListener("abort", () => xhr.abort());
+    xhr.send(file);
+  });
+}
+
+function mediaDialog(client) {
+  let items = [], loading = true, error = "", active = 0;
+  const queue = h("ul", { class: "upload-queue" });
+  const grid = h("div", { class: "media-grid", "aria-live": "polite" });
+  const summary = h("p", { class: "media-summary" });
+  const downloadAll = h("button", { type: "button", class: "button primary small", onclick: () => { readyItems().forEach((item, index) => setTimeout(() => void download(item), index * 1200)); } }, "Download all", h("span", { "aria-hidden": "true" }, "↓"));
+  const input = h("input", { type: "file", multiple: true, accept: "image/*,video/*", class: "sr-only", onchange: event => { void addFiles([...event.target.files]); event.target.value = ""; } });
+  const drop = h("label", { class: "dropzone" }, input,
+    h("strong", {}, "Drop photos and videos here"), h("span", {}, "or click to choose files · up to 5 GB each"));
+  for (const type of ["dragenter", "dragover"]) drop.addEventListener(type, event => { event.preventDefault(); drop.classList.add("over"); });
+  for (const type of ["dragleave", "drop"]) drop.addEventListener(type, () => drop.classList.remove("over"));
+  drop.addEventListener("drop", event => { event.preventDefault(); void addFiles([...event.dataTransfer.files]); });
+  const readyItems = () => items.filter(item => item.status === "ready");
+
+  async function refresh() {
+    try { items = (await api(`media?clientId=${encodeURIComponent(client.id)}`)).media.sort((a, b) => b.createdAt.localeCompare(a.createdAt)); error = ""; }
+    catch (caught) { error = handleError(caught, "Could not load this client's files.") ?? ""; if (state.auth === false) node.close(); }
+    loading = false; draw();
+  }
+  async function download(item) {
+    try { startDownload((await api(`media?id=${encodeURIComponent(item.id)}`)).url); }
+    catch (caught) { const message = handleError(caught, "Could not start the download."); if (message) alert(message); }
+  }
+  async function remove(item) {
+    if (!confirm(`Delete ${item.fileName}? This removes it from storage for everyone.`)) return;
+    try { await api(`media?id=${encodeURIComponent(item.id)}`, { method: "DELETE" }); await refresh(); void load(); }
+    catch (caught) { const message = handleError(caught, "Could not delete the file."); if (message) alert(message); }
+  }
+  function draw() {
+    const ready = readyItems();
+    const total = ready.reduce((sum, item) => sum + item.size, 0);
+    summary.textContent = loading ? "Loading files…" : ready.length ? `${plural(ready.length, "file")} · ${bytes(total)}` : "No photos or videos yet.";
+    downloadAll.disabled = ready.length === 0;
+    downloadAll.title = ready.length > 1 ? "Your browser may ask once to allow several downloads." : "";
+    grid.replaceChildren(...(error ? [h("p", { class: "error", role: "alert" }, error)] : []), ...items.map(item => {
+      const video = item.contentType.startsWith("video/");
+      const preview = item.status !== "ready" ? h("div", { class: "media-placeholder" }, "Upload didn't finish")
+        : video ? h("video", { src: item.previewUrl, preload: "metadata", controls: true, muted: true, playsinline: true })
+        : h("img", { src: item.previewUrl, alt: item.fileName, loading: "lazy" });
+      return h("article", { class: "media-card" },
+        h("div", { class: "media-preview" }, preview, h("span", { class: "media-kind" }, video ? "Video" : "Photo")),
+        h("div", { class: "media-meta" }, h("strong", { title: item.fileName }, item.fileName), h("span", {}, `${bytes(item.size)} · ${shortDate((item.uploadedAt || item.createdAt).slice(0, 10))}`)),
+        h("div", { class: "row-actions" },
+          item.status === "ready" ? h("button", { type: "button", class: "button primary small", onclick: () => void download(item) }, "Download", h("span", { "aria-hidden": "true" }, "↓")) : null,
+          h("button", { type: "button", class: "button danger small", onclick: () => void remove(item) }, "Delete")));
+    }));
+  }
+
+  async function addFiles(files) {
+    for (const file of files) {
+      const type = fileType(file);
+      const bar = h("span", { class: "bar" });
+      const status = h("span", { class: "upload-status" }, "Waiting…");
+      const controller = new AbortController();
+      const cancel = h("button", { type: "button", class: "icon-button small", "aria-label": `Cancel ${file.name}`, onclick: () => controller.abort() }, "×");
+      const row = h("li", {}, h("div", { class: "upload-line" }, h("strong", {}, file.name), h("span", {}, bytes(file.size)), cancel), h("div", { class: "progress" }, bar), status);
+      queue.append(row);
+      const fail = message => { row.classList.add("failed"); status.textContent = message; cancel.remove(); };
+      if (!type) { fail("Not a photo or video, skipped."); continue; }
+      if (file.size > MAX_FILE_BYTES) { fail("Larger than 5 GB, skipped. Export a smaller version."); continue; }
+      if (!file.size) { fail("This file is empty, skipped."); continue; }
+      active++;
+      let started = null;
+      try {
+        status.textContent = "Starting…";
+        started = await api("media", { method: "POST", body: JSON.stringify({ clientId: client.id, fileName: file.name, contentType: type, size: file.size }) });
+        await putFile(started.upload, file, fraction => { bar.style.width = `${(fraction * 100).toFixed(1)}%`; status.textContent = `Uploading… ${Math.floor(fraction * 100)}%`; }, controller.signal);
+        status.textContent = "Checking…";
+        await api("media", { method: "PATCH", body: JSON.stringify({ id: started.media.id }) });
+        bar.style.width = "100%"; status.textContent = "Uploaded"; row.classList.add("done"); cancel.remove();
+        setTimeout(() => row.remove(), 4000);
+      } catch (caught) {
+        if (started) await api(`media?id=${encodeURIComponent(started.media.id)}`, { method: "DELETE" }).catch(() => {});
+        const message = caught?.name === "AbortError" ? "Cancelled." : handleError(caught, "Upload failed.");
+        if (message === null) { node.close(); return; }
+        fail(message);
+      } finally { active--; }
+      await refresh();
+    }
+    void load();
+  }
+
+  const warnBeforeLeaving = event => { if (active) { event.preventDefault(); event.returnValue = ""; } };
+  window.addEventListener("beforeunload", warnBeforeLeaving);
+  const close = () => { if (!active || confirm("Uploads are still running. Close and cancel them?")) node.close(); };
+  const node = h("dialog", { class: "sheet wide", onclose: () => { window.removeEventListener("beforeunload", warnBeforeLeaving); node.remove(); }, oncancel: event => { event.preventDefault(); close(); } },
+    h("div", { class: "sheet-body" },
+      h("div", { class: "sheet-head" },
+        h("div", {}, h("p", { class: "eyebrow" }, "Photos & videos"), h("h2", {}, client.name)),
+        h("button", { type: "button", class: "icon-button", "aria-label": "Close", onclick: close }, "×")),
+      drop, queue,
+      h("div", { class: "media-bar" }, summary, downloadAll),
+      grid));
+  document.body.append(node);
+  node.showModal();
+  draw();
+  void refresh();
+}
+
 async function removeClient(client, rentals) {
   if (rentals) { alert(`${client.name} has ${plural(rentals, "rental")}. Delete those rentals or move them to another client first.`); return; }
   if (!confirm(`Delete ${client.name}? This cannot be undone.`)) return;
@@ -459,7 +604,7 @@ async function removeScreen(screen, rentals) {
 
 signoutButton.addEventListener("click", async () => {
   signoutButton.disabled = true;
-  try { await api("session", { method: "DELETE" }); Object.assign(state, { auth: false, error: "", screens: [], clients: [], rentals: [] }); render(); }
+  try { await api("session", { method: "DELETE" }); Object.assign(state, { auth: false, error: "", screens: [], clients: [], rentals: [], media: [] }); render(); }
   catch { alert("Could not sign out. Please try again."); }
   finally { signoutButton.disabled = false; }
 });

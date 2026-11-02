@@ -10,12 +10,14 @@ export const digest = value => createHash("sha256").update(value).digest("hex");
  *   screens.list() / insert(fields) / update(id, fields) / remove(id)
  *   clients.list() / insert(fields) / update(id, fields) / remove(id)
  *   rentals.list() / save(id | null, fields) / remove(id)
+ *   media.list() / get(id) / create(fields) / markReady(id) / remove(id)
  *   sessions.get(hash) / create(hash, credential, seconds) / remove(hash)
  *   hit(key, seconds) → attempts in the current window
  *
  * Records use camelCase: screens { id, number, label, status, notes, createdAt, updatedAt },
  * clients { id, name, email, phone, address, createdAt, updatedAt },
- * rentals { id, clientId, address, notes, start, end, screenIds, createdAt, updatedAt }.
+ * rentals { id, clientId, address, notes, start, end, screenIds, createdAt, updatedAt },
+ * media { id, clientId, objectKey, fileName, contentType, size, status, createdAt, uploadedAt }.
  * Both stores enforce unique numbers, existing screens and clients, and no double-booking.
  * A rental saved with an empty address takes the client's default address.
  */
@@ -23,7 +25,8 @@ export const digest = value => createHash("sha256").update(value).digest("hex");
 export const conflict = {
   number: number => new AdminError(`Screen #${number} already exists.`, 409),
   inUse: () => new AdminError("This screen is on a rental. Remove it from those rentals first, or mark it retired.", 409),
-  clientInUse: () => new AdminError("This client has rentals. Delete or reassign those rentals first.", 409),
+  clientInUse: () => new AdminError("This client has rentals or media. Delete those first.", 409),
+  mediaNotFound: () => new AdminError("That file no longer exists.", 404),
   missingClient: () => new AdminError("That client no longer exists. Refresh and try again.", 409),
   clientNotFound: () => new AdminError("That client no longer exists.", 404),
   missingScreen: () => new AdminError("One of the chosen screens no longer exists. Refresh and try again.", 409),
@@ -33,7 +36,7 @@ export const conflict = {
 };
 
 export function memoryDb() {
-  const screens = new Map(), clients = new Map(), rentals = new Map(), sessions = new Map(), attempts = new Map();
+  const screens = new Map(), clients = new Map(), rentals = new Map(), media = new Map(), sessions = new Map(), attempts = new Map();
   const copy = value => structuredClone(value);
   const stamp = () => new Date().toISOString();
   return {
@@ -73,7 +76,7 @@ export function memoryDb() {
       },
       async remove(id) {
         if (!clients.has(id)) throw conflict.clientNotFound();
-        if ([...rentals.values()].some(rental => rental.clientId === id)) throw conflict.clientInUse();
+        if ([...rentals.values(), ...media.values()].some(item => item.clientId === id)) throw conflict.clientInUse();
         clients.delete(id);
       },
     },
@@ -93,6 +96,23 @@ export function memoryDb() {
         return copy(rental);
       },
       async remove(id) { if (!rentals.delete(id)) throw conflict.rentalNotFound(); },
+    },
+    media: {
+      async list() { return [...media.values()].map(copy); },
+      async get(id) { return media.has(id) ? copy(media.get(id)) : null; },
+      async create(fields) {
+        if (!clients.has(fields.clientId)) throw conflict.missingClient();
+        const item = { id: fields.id || randomUUID(), ...fields, status: "pending", createdAt: stamp(), uploadedAt: null };
+        media.set(item.id, item);
+        return copy(item);
+      },
+      async markReady(id) {
+        if (!media.has(id)) throw conflict.mediaNotFound();
+        const item = { ...media.get(id), status: "ready", uploadedAt: stamp() };
+        media.set(id, item);
+        return copy(item);
+      },
+      async remove(id) { if (!media.delete(id)) throw conflict.mediaNotFound(); },
     },
     sessions: {
       async get(hash) {
